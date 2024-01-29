@@ -23,46 +23,23 @@ class ProductController extends Controller
      */
     public function mycart(UserStock $userStock)
     {
-        $userId = Auth::id();
-        $cart = UserStock::where('userId', $userId)->with('product')->get()->toArray();
-        //配列形式で、該当するuserテーブルからレコードを取得
-
-        $total_price = 0;
-        foreach ($cart as $products) {
-            $total_price += $products["product"]["price"] * $products["number"];
-        }
+        $total_price = $userStock->totalPrice();
         $myCartProducts = $userStock->showMyCart();
 
         return view('products.mycart',compact('myCartProducts','total_price'));
         
     }
 
-    public function addmycart(Request $request)
+    public function addmycart(Request $request,UserStock $userStock)
     {
         $userId = Auth::id(); 
         $stockId = $request->input('stockId');
         $number = $request->input('number');
-        UserStock::where('userId', $userId)->where('stockId',$stockId)->delete();
-        $cartAddInfo = UserStock::firstOrCreate(['stockId' => $stockId,'userId' => $userId, 'number' =>$number]);
-
-        if($cartAddInfo->wasRecentlyCreated){
-            $message = 'カートに追加しました';
-        }
-        else{
-            $message = 'すでにカートに入っています';
-        }
+        $message = $userStock->addmycart($stockId,$number);
         $myCartProducts = UserStock::where('userId',$userId)->get();
 
         //再度カート内の合計金額を計算
-
-        $userId = Auth::id();
-        $cart = UserStock::where('userId', $userId)->with('product')->get()->toArray();
-        //配列形式で、該当するuserテーブルからレコードを取得
-
-        $total_price = 0;
-        foreach ($cart as $products) {
-            $total_price += $products["product"]["price"] * $products["number"];
-        }
+        $total_price = $userStock->totalPrice();
 
         return view('products.mycart',compact('myCartProducts' , 'message', 'total_price'));
     }
@@ -78,52 +55,16 @@ class ProductController extends Controller
         $myCartProducts = $userStock->showMyCart();
 
         //再度カート内の合計金額を計算
-        
-        $userId = Auth::id();
-        $cart = UserStock::where('userId', $userId)->with('product')->get()->toArray();
-        //配列形式で、該当するuserテーブルからレコードを取得
-
-        $total_price = 0;
-        foreach ($cart as $products) {
-            $total_price += $products["product"]["price"] * $products["number"];
-        }
+        $total_price = $userStock->totalPrice();
 
         return view('products.mycart',compact('myCartProducts' , 'message','total_price'));
     }
 
-    public function checkout()
+    public function checkout(UserStock $userStock)
     {
-
-        $userId = Auth::id();
-        $cart = UserStock::where('userId', $userId)->with('product')->get()->toArray();
-        $line_items = [];
-        foreach ($cart as $products) {
-            $line_item = [
-                'price_data' => [
-                    'currency' => 'jpy',
-                    'unit_amount' => $products["product"]["price"],
-                    'product_data' => [
-                        'name' => $products["product"]["name"],
-                        'description' => $products["product"]["discribe"],
-                    ],
-                ],
-                'quantity'    => $products["number"],
-            ];
-
-            array_push($line_items, $line_item);
-            
-        }
-
-
         \Stripe\Stripe::setApiKey(env('STRIPE_SECRET_KEY'));
+        $session = $userStock->checkout();
 
-        $session = \Stripe\Checkout\Session::create([
-            'payment_method_types' => ['card'],
-            'line_items'           => [$line_items],
-            'success_url'          => route('products.index'),
-            'cancel_url'           => route('products.mycart'),
-            'mode'                 => 'payment',
-        ]);
 
         return view('products.checkout',[
             'session' => $session,
@@ -133,13 +74,13 @@ class ProductController extends Controller
 
     public function index()
     {
-        // return view('products.index');
         $products = Product::select('id','name', 'price')->get();
         return view('products.index', compact('products'));
     }
 
     public function adminindex()
     {
+        // 権限の認証
         Gate::authorize('admin-higher');
 
         // return view('products.index');
@@ -154,6 +95,7 @@ class ProductController extends Controller
      */
     public function create()
     {
+        // 権限の認証
         Gate::authorize('admin-higher');
         return view('products.create');
     }
@@ -166,7 +108,6 @@ class ProductController extends Controller
      */
     public function store(Request $request)
     {
-        // dd($request);
         Product::create([
             'name' => $request->name,
             'price' => $request->price,
@@ -185,7 +126,6 @@ class ProductController extends Controller
      */
     public function show($id)
     {
-
         $product = Product::find($id); // 1件だけ取得
         if($product->genre === 1 ){ $genre = 'トップス'; }
         if($product->genre === 2 ){ $genre = 'ボトムス'; } 
@@ -194,6 +134,9 @@ class ProductController extends Controller
 
     public function adminshow($id)
     {
+        // 権限の認証
+        Gate::authorize('admin-higher');
+
         $product = Product::find($id); // 1件だけ取得
         if($product->genre === 1 ){ $genre = 'トップス'; }
         if($product->genre === 2 ){ $genre = 'ボトムス'; } 
@@ -208,7 +151,9 @@ class ProductController extends Controller
      */
     public function edit($id)
     {
+        // 権限の認証
         Gate::authorize('admin-higher');
+
         $product = Product::find($id);
         return view('products.edit', compact('product'));
     }
@@ -224,9 +169,7 @@ class ProductController extends Controller
     {
         
         $product = Product::find($id);
-
         $product->name = $request->name;
-        dd($product);
         $product->price = $request->price;
         $product->discribe = $request->discribe;
         $product->genre = $request->genre;
@@ -243,6 +186,8 @@ class ProductController extends Controller
      */
     public function destroy($id)
     {
+        // 権限の認証
+        Gate::authorize('admin-higher');
 
         $product = Product::find($id);
         $product->delete();
